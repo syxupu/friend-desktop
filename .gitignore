@@ -1,0 +1,60 @@
+node_modules/
+dist/
+release/
+.test-data/
+vendor/
+*.log
+extracted-assets/
+
+# Local credentials and user/runtime data (never publish).
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+settings.json
+secrets.json
+session.json
+chat-library.json
+tavern-data/
+backups/
+*.jsonl
+*.zip
+*.7z
+*.asar
+*.exe
+*.dmp
+.publish/
+
+# Imported character cards and source asset archives stay on this computer.
+# Only the eight pet sprites needed by the application are published.
+/assets/*
+!/assets/pets/
+/assets/pets/*
+!/assets/pets/wanxiang-fox/
+/assets/pets/wanxiang-fox/*
+!/assets/pets/wanxiang-fox/sprites/
+*.png
+*.jpg
+*.jpeg
+*.webp
+!/assets/pets/wanxiang-fox/sprites/*.png
+
+# Local validation output can contain chats, character metadata and screenshots.
+/docs/*
+!/docs/product-design.md
+!/docs/task-archive.md
+!/docs/chat-controls.md
+!/docs/notice-order-fix.md
+!/docs/table-memory-reference.md
+!/docs/p1-fixes/
+/docs/p1-fixes/*
+!/docs/p1-fixes/report.md
+
+# One-off tools tied to the original private character and asset import.
+/scripts/clear-character-greetings.mjs
+/scripts/verify-no-greetings.mjs
+/scripts/verify-imported-assets.mjs
+/scripts/inspect-pet-archive.ps1
+/scripts/finalize-p1.mjs

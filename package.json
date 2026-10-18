@@ -1,0 +1,74 @@
+{
+  "name": "friend-desktop",
+  "version": "0.2.0",
+  "description": "Windows 学习陪伴桌宠原型，内置 SillyTavern 对话核心",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "tsx --test tests/*.test.ts",
+    "test:integration": "npm run build && node scripts/integration.mjs",
+    "typecheck": "tsc --noEmit",
+    "package": "npm run build && electron-builder --win dir",
+    "setup": "node scripts/setup.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^41.0.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.0",
+    "extract-zip": "^2.0.1",
+    "playwright": "^1.58.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "io.friend.desktop",
+    "productName": "Friend 桌宠",
+    "directories": {
+      "output": "release/0.2.0"
+    },
+    "files": [
+      "dist/**",
+      "assets/pets/wanxiang-fox/sprites/**",
+      "assets/characters/主人的猫.json",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "extraResources": [
+      { "from": "dist/native", "to": "native", "filter": ["foreground-reader.exe"] },
+      {
+        "from": "vendor/SillyTavern",
+        "to": "SillyTavern",
+        "filter": [
+          "**/*",
+          "!.git/**",
+          "!data/**",
+          "!backups/**",
+          "!config.yaml",
+          "!node_modules/**"
+        ]
+      },
+      {
+        "from": "vendor/SillyTavern/node_modules",
+        "to": "SillyTavern/node_modules",
+        "filter": ["**/*", "!.cache/**"]
+      },
+      {
+        "from": "vendor/node",
+        "to": "node",
+        "filter": [
+          "node.exe",
+          "LICENSE",
+          "runtime.json"
+        ]
+      }
+    ],
+    "win": {
+      "target": "dir"
+    }
+  }
+}

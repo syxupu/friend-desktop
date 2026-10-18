@@ -1,0 +1,10 @@
+import { build } from 'esbuild';
+import { cp, mkdir } from 'node:fs/promises';
+await import('./build-native.mjs');
+await mkdir('dist', { recursive: true });
+await build({ entryPoints: ['src/main.ts'], outfile: 'dist/main.js', bundle: true, platform: 'node', format: 'cjs', external: ['electron'], target: 'node22' });
+await build({ entryPoints: ['src/preload.ts'], outfile: 'dist/preload.js', bundle: true, platform: 'node', format: 'cjs', external: ['electron'], target: 'node22' });
+await build({ entryPoints: ['src/tavern-preload.ts'], outfile: 'dist/tavern-preload.js', bundle: true, platform: 'node', format: 'cjs', external: ['electron'], target: 'node22' });
+await build({ entryPoints: ['src/renderer.ts'], outfile: 'dist/renderer.js', bundle: true, platform: 'browser', target: 'chrome130' });
+await build({ entryPoints: ['src/pet.ts'], outfile: 'dist/pet.js', bundle: true, platform: 'browser', target: 'chrome130' });
+for (const file of ['index.html', 'pet.html', 'style.css', 'tavern-bridge.js']) await cp(`src/${file}`, `dist/${file}`);
