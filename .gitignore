@@ -43,6 +43,7 @@ backups/
 
 # Local validation output can contain chats, character metadata and screenshots.
 /docs/*
+!/docs/HANDOFF.md
 !/docs/product-design.md
 !/docs/task-archive.md
 !/docs/chat-controls.md
