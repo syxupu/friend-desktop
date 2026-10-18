@@ -43,7 +43,7 @@ async function segment(taskId, id) { return page.evaluate(({ taskId, id }) => wi
 try {
   await launch(); assert.deepEqual(await tasks(), []);
   const compact = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getSize());
-  await page.locator('#workspace-button').click(); await wait(value => value.view === 'dashboard');
+  await page.locator('#settings-button').click(); await wait(value => value.view === 'dashboard');
   const expanded = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getSize());
   assert.ok(expanded[0] > compact[0]); await page.locator('#nav-settings').click();
   await page.locator('#settings[open]').waitFor({ state: 'visible' });
@@ -52,7 +52,7 @@ try {
   assert.equal((await page.locator('input[name="deepseekKey"]').inputValue()), '');
   await mkdir('docs/screenshots', { recursive: true });
   await page.screenshot({ path: `docs/screenshots/archive-settings-${packaged ? 'packaged' : 'dev'}.png` });
-  await page.locator('#back-to-chat').click(); await wait(value => value.view === 'chat');
+  await page.locator('#settings-button').click(); await wait(value => value.view === 'chat');
   record('native compact/dashboard switch and large settings form preserve API secret masking');
   await page.evaluate(() => window.friend.control('start', '数学任务·第一段'));
   await page.evaluate(() => window.friend.send('第一段的学习问题'));
@@ -80,7 +80,7 @@ try {
   assert.deepEqual(await messages(), []); assert.ok((await tasks())[0].endedAt);
   record('two independent segment files belong to one task; finish resets timer and clears chat without deleting history');
   const currentFile = await tavern.evaluate(() => window.SillyTavern.getContext().chatId);
-  await page.locator('#workspace-button').click(); await wait(value => value.view === 'dashboard');
+  await page.locator('#settings-button').click(); await wait(value => value.view === 'dashboard'); await page.locator('#nav-history').click();
   await page.locator(`.task-entry[data-task-id="${firstTaskId}"]`).click();
   await page.locator('.segment-entry').nth(1).waitFor({ state: 'visible' });
   await page.locator('.segment-entry').first().click();
@@ -93,7 +93,7 @@ try {
   await mkdir('docs/screenshots', { recursive: true });
   await page.screenshot({ path: `docs/screenshots/archive-${packaged ? 'packaged' : 'dev'}.png` });
   record('dashboard drills down task/segment/messages, searches text and never switches the live Tavern chat');
-  await page.locator('#back-to-chat').click(); await wait(value => value.view === 'chat');
+  await page.locator('#settings-button').click(); await wait(value => value.view === 'chat');
   await page.evaluate(() => window.friend.control('start', '第二次任务'));
   await page.evaluate(() => window.friend.send('保存失败时必须保留的聊天'));
   // Deliberately fail only this isolated profile's metadata temp file.

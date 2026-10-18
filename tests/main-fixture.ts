@@ -3,7 +3,8 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { transformSync } from 'esbuild';
 import { EventEmitter } from 'node:events';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import * as zlib from 'node:zlib';
 export function deferred<T = any>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void;
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
@@ -24,22 +25,23 @@ export function vmLoader(overrides: Record<string, any>, globals: Record<string,
       if (name.startsWith('.')) return load(path.join(path.dirname(file), name + '.ts'));
       // Only built-in modules pass through; Electron is always explicitly mocked.
       if (name === 'node:path') return path;
-      if (name === 'node:crypto') return { randomUUID };
+      if (name === 'node:crypto') return { randomUUID, createHash };
+      if (name === 'node:zlib') return zlib;
       throw new Error(`Missing test mock: ${name}`);
     };
     vm.runInNewContext(code, { module: mod, exports: mod.exports, require: requireMock, performance, process: { argv: [], env: {}, pid: 1 },
-      AbortController, AbortSignal, Buffer, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, ...globals }, { filename: file });
+      AbortController, AbortSignal, Buffer, console, URL, structuredClone, setTimeout, clearTimeout, setInterval, clearInterval, ...globals }, { filename: file });
     cache.set(file, mod.exports); return mod.exports;
   };
 }
-export function mainFixture() {
+export function mainFixture(options: { backup?: () => Promise<void> } = {}) {
   const handlers = new Map<string, (...args: any[]) => any>();
   const events = new Map<string, (...args: any[]) => any>();
   const ipcEvents = new Map<string, (...args: any[]) => any>();
   const calls: any[] = [], audio: any[] = []; let syntheses = 0;
   let active: ReturnType<typeof deferred> | undefined;
   const bridge = {
-    window: { webContents: {} },
+    window: { webContents: {}, isDestroyed: () => false },
     avatar: 'test.png', close() { active?.reject(new Error('runtime closed')); active = undefined; },
     async stopGeneration() { const old = active; active = undefined; old?.reject(new Error('cancelled')); await tick(); },
     async call(method: string, data: any) {
@@ -54,7 +56,7 @@ export function mainFixture() {
     electron: { app, ipcMain: { handle: (key: string, value: any) => handlers.set(key, value), on: (key: string, value: any) => ipcEvents.set(key, value) }, powerSaveBlocker: { start: () => 1, stop() {} } },
     './tavern': { TavernRuntime: class {} }, './foreground': { emptyForeground: () => ({ status: 'inactive', current: null, lastExternal: null }) },
     './speech': { extractSpeech: (text: string) => text, synthesize: async () => { syntheses++; return 'mock-wav'; } },
-    './model-proxy': {}, 'node:fs/promises': { writeFile: async () => {}, rename: async () => {} },
+    './model-proxy': {}, 'node:fs/promises': { writeFile: async () => {}, rename: async () => {}, mkdir: async () => {}, copyFile: async () => { await options.backup?.(); } },
     './settings': { publicSettings: (settings: any) => ({ ...settings, deepseekKey: '', mimoKey: '' }) },
   });
   const mod = load('src/main.ts', `

@@ -22,6 +22,21 @@ async function fixture() {
 }
 const snapshot = (mode: StudySnapshot['mode'] = 'study', segment = 1): StudySnapshot => ({ mode, segment, elapsedMs: 0, taskElapsedMs: 0, topic: '数学', rounds: 0, chatReminderSent: false });
 
+test('character switch saves the old free chat and commits the target atomically; disk failure leaves identity intact', async () => {
+  const f = await fixture(); await f.chat(reference, []); await f.archive.initialize(reference, [], snapshot('idle', 0));
+  await f.chat(reference, ['old role chat']);
+  const target = { avatar: 'other.png', fileName: 'other-chat', characterName: 'Other' };
+  await f.chat(target, []);
+  const blocker = path.join(f.directory, 'chat-library.json.tmp'); await mkdir(blocker);
+  await assert.rejects(f.archive.switchCharacter(target, true, snapshot('idle', 0)));
+  assert.deepEqual(f.archive.snapshot().currentChat, reference); assert.equal(f.archive.list().length, 0);
+  await rmdir(blocker); await f.archive.switchCharacter(target, true, snapshot('idle', 0));
+  assert.deepEqual(f.archive.snapshot().currentChat, target);
+  const oldTask = f.archive.list()[0]; assert.equal(oldTask.kind, 'free');
+  const detail = f.archive.getTask(oldTask.id); assert.equal((await f.archive.getSegment(oldTask.id, detail.segments[0].id)).messages[0].text, 'old role chat');
+  const loaded = new ConversationArchive(f.directory); await loaded.load(); assert.deepEqual(loaded.snapshot().currentChat, target);
+});
+
 test('archive groups two segments under one task, hides only ended learning messages, and preserves rest in that segment', async () => {
   const f = await fixture(); await f.chat(reference, []); await f.archive.initialize(reference, [], snapshot('idle', 0));
   const first = await f.archive.startSegment('数学', snapshot(), reference, false); await f.chat(first, ['学习问题', '学习回复']);

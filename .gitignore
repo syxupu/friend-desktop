@@ -17,6 +17,9 @@ settings.json
 secrets.json
 session.json
 chat-library.json
+companions.json
+character-backups/
+chat-deletion-backups/
 tavern-data/
 backups/
 *.jsonl

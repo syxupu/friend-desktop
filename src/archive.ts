@@ -10,6 +10,13 @@ interface Library {
 }
 const empty = (): Library => ({ version: 1, tasks: [], hiddenIds: [] });
 const sameChat = (a?: ChatReference, b?: ChatReference) => a?.avatar === b?.avatar && a?.fileName === b?.fileName;
+export function chatFilePath(directory: string, chat: ChatReference) {
+  if (!chat || typeof chat.avatar !== 'string' || typeof chat.fileName !== 'string' || !chat.avatar.endsWith('.png') || [chat.avatar, chat.fileName].some(value => !value || /[\\/\x00:]/.test(value) || value === '.' || value === '..')) throw new Error('聊天文件标识不正确');
+  const root = path.resolve(directory, 'tavern-data/default-user/chats');
+  const target = path.resolve(root, chat.avatar.slice(0, -4), `${chat.fileName}.jsonl`);
+  if (!target.startsWith(root + path.sep)) throw new Error('聊天文件位置不正确');
+  return target;
+}
 
 /** Metadata only: the original Tavern JSONL remains the source of conversation text. */
 export class ConversationArchive {
@@ -47,11 +54,27 @@ export class ConversationArchive {
   }
   newChat(avatar: string): ChatReference { return { avatar, fileName: `Friend-${randomUUID()}` }; }
   private chatPath(chat: ChatReference) {
-    if (!chat.avatar.endsWith('.png') || [chat.avatar, chat.fileName].some(value => !value || /[\\/\x00]/.test(value) || value === '.' || value === '..')) throw new Error('聊天文件标识不正确');
-    const root = path.resolve(this.directory, 'tavern-data/default-user/chats');
-    const target = path.resolve(root, chat.avatar.slice(0, -4), `${chat.fileName}.jsonl`);
-    if (!target.startsWith(root + path.sep)) throw new Error('聊天文件位置不正确');
-    return target;
+    return chatFilePath(this.directory, chat);
+  }
+  references(): ChatReference[] { return [...this.value.tasks.flatMap(task => task.segments.map(segment => structuredClone(segment.chat))), ...(this.value.currentChat ? [structuredClone(this.value.currentChat)] : [])]; }
+  deletionPlan(taskId: string, segmentId?: string) {
+    const task = this.getTask(taskId);
+    const segments = segmentId ? task.segments.filter(segment => segment.id === segmentId) : task.segments;
+    if (!segments.length) throw new Error('该学习段不存在');
+    if (!segmentId && task.id === this.value.activeTaskId) throw new Error('请先结束当前学习任务，再删除整次记录');
+    if (segments.some(segment => segment.id === this.value.activeSegmentId || sameChat(segment.chat, this.value.currentChat))) throw new Error('不能删除正在使用的会话，请先结束任务或新开聊天');
+    const deleted = new Set(segments.map(segment => segment.id));
+    const retained = this.value.tasks.flatMap(t => t.segments.filter(segment => !deleted.has(segment.id)).map(segment => segment.chat));
+    const chats = segments.map(segment => segment.chat).filter((chat, index, all) => !retained.some(ref => sameChat(ref, chat)) && all.findIndex(ref => sameChat(ref, chat)) === index);
+    return { taskId, segmentId, chats };
+  }
+  async deleteRecord(taskId: string, segmentId?: string) {
+    await this.commit(draft => {
+      this.deletionPlan(taskId, segmentId);
+      const task = draft.tasks.find(task => task.id === taskId)!;
+      if (segmentId) task.segments = task.segments.filter(segment => segment.id !== segmentId);
+      if (!segmentId || !task.segments.length) draft.tasks = draft.tasks.filter(task => task.id !== taskId);
+    });
   }
   private async readMessages(chat: ChatReference): Promise<ChatMessage[]> {
     const text = await readFile(this.chatPath(chat), 'utf8');
@@ -88,7 +111,7 @@ export class ConversationArchive {
           segments: [{ id: randomUUID(), number: Math.max(1, study.segment), topic: study.topic, startedAt: now, durationMs: study.elapsedMs, chat }] };
         draft.tasks.push(task); draft.activeTaskId = task.id; draft.activeSegmentId = task.segments[0].id;
       }
-      if (study.mode === 'idle' && messages.length) draft.currentChat = this.newChat(chat.avatar);
+      if (study.mode === 'idle' && messages.length) draft.currentChat = { ...this.newChat(chat.avatar), characterName: chat.characterName };
     });
   }
   private keepFreeChat(draft: Library, chat: ChatReference, hasMessages: boolean) {
@@ -97,8 +120,16 @@ export class ConversationArchive {
     draft.tasks.push({ id: randomUUID(), title: '自由聊天', kind: 'free', startedAt: now, endedAt: now,
       segments: [{ id: randomUUID(), number: 1, topic: '自由聊天', startedAt: now, endedAt: now, durationMs: 0, chat }] });
   }
+  async switchCharacter(chat: ChatReference, previousHasMessages: boolean, study: StudySnapshot) {
+    this.chatPath(chat);
+    await this.commit(draft => {
+      if (study.mode !== 'idle' || draft.activeTaskId) throw new Error('请先结束当前任务，再更换角色');
+      if (draft.currentChat) this.keepFreeChat(draft, draft.currentChat, previousHasMessages);
+      draft.currentChat = chat; draft.hiddenIds = []; draft.study = study;
+    });
+  }
   async startSegment(topic: string, planned: StudySnapshot, previous: ChatReference, hasMessages: boolean) {
-    const next = this.newChat(previous.avatar);
+    const next = { ...this.newChat(previous.avatar), characterName: previous.characterName };
     await this.commit(draft => {
       if (!draft.activeTaskId) this.keepFreeChat(draft, previous, hasMessages);
       let task = draft.tasks.find(task => task.id === draft.activeTaskId);
@@ -118,7 +149,7 @@ export class ConversationArchive {
     });
   }
   async finishTask(planned: StudySnapshot, finalDuration: number, previous: ChatReference) {
-    const next = this.newChat(previous.avatar);
+    const next = { ...this.newChat(previous.avatar), characterName: previous.characterName };
     await this.commit(draft => {
       const task = draft.tasks.find(task => task.id === draft.activeTaskId);
       if (task) {

@@ -16,7 +16,7 @@ export async function startModelProxy(getSettings: () => Settings) {
       response.end(JSON.stringify({ object: 'list', data: [{ id: settings.deepseekModel, object: 'model' }] })); return;
     }
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') { response.writeHead(404).end(); return; }
-    if (!settings.deepseekKey) { response.writeHead(503).end('未配置 DeepSeek 密钥'); return; }
+    if (!settings.deepseekKey) { response.writeHead(503).end('未配置对话 API 密钥'); return; }
     const controller = new AbortController();
     controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), 120_000);

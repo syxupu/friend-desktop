@@ -1,5 +1,7 @@
 import type { AppState, Settings, ChatMessage } from './types';
 import { renderDashboard, openWorkspace } from './dashboard';
+import { renderWorkshop } from './workshop';
+import { resetApiSettings } from './api-settings';
 const byId = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const settingsDialog = byId<HTMLDialogElement>('settings');
 const settingsForm = byId<HTMLFormElement>('settings-form');
@@ -11,6 +13,7 @@ let selectedMessage: ChatMessage | null = null;
 let editingRequest = false;
 let current: AppState;
 let clearDeepseek = false, clearMimo = false;
+let characterRequest = 0, characterWorking = false;
 let historySignature = '';
 let previousStateError: string | undefined;
 let audio: HTMLAudioElement | null = null;
@@ -22,6 +25,7 @@ async function run(fn: () => Promise<unknown>) { try { showError(''); await fn()
 function render(state: AppState) {
   current = state;
   renderDashboard(state);
+  renderWorkshop(state);
   const pinned = state.settings.chatAlwaysOnTop;
   byId('pin-button').setAttribute('aria-pressed', String(pinned));
   byId('pin-button').setAttribute('aria-label', pinned ? '取消置顶聊天' : '置顶聊天');
@@ -29,6 +33,11 @@ function render(state: AppState) {
   byId('character').textContent = state.character;
   byId('connection').textContent = state.connection;
   byId('online-dot').classList.toggle('ready', state.tavernReady);
+  byId('current-character').textContent = `当前角色：${state.character}`;
+  byId('book-info').textContent = `当前角色：${state.character} · 已导入 ${state.bookEntries} 条世界书`;
+  for (const id of ['import-character', 'refresh-characters', 'character-select']) byId<HTMLButtonElement>(id).disabled = characterWorking || state.busy || state.configuring;
+  byId<HTMLButtonElement>('use-character').disabled = characterWorking || state.busy || state.configuring || state.study.mode !== 'idle' || !byId<HTMLSelectElement>('character-select').value;
+  byId('character-hint').textContent = state.study.mode === 'idle' ? '切换后保留各角色的聊天；同名角色会分别列出。' : '请先结束当前任务，再更换角色。你仍可导入角色卡。';
   const mode = state.study.mode;
   byId('mode').textContent = { idle: '等待开始', study: '专注学习', paused: '已暂停', break: '休息一下' }[mode];
   byId('timer').textContent = time(state.study.elapsedMs);
@@ -46,7 +55,7 @@ function render(state: AppState) {
   byId('stop-audio').hidden = !state.speaking;
   byId('stop-generation').hidden = !state.busy;
   byId('restart-tavern').hidden = state.tavernReady || state.configuring || state.busy;
-  byId('save-status').textContent = state.persistence.status === 'saved' ? '本机已保存 · 原型 0.2.0' : state.persistence.status === 'saving' ? '正在保存…' : '进度尚未保存';
+  byId('save-status').textContent = state.persistence.status === 'saved' ? '本机已保存 · 原型 0.5.2' : state.persistence.status === 'saving' ? '正在保存…' : '进度尚未保存';
   byId('save-warning').hidden = state.persistence.status !== 'error' && !state.exitWarning;
   byId('save-warning-text').textContent = state.exitWarning || state.persistence.error || '进度尚未保存，正在重试。';
   const observation = state.foreground;
@@ -158,7 +167,12 @@ byId('force-quit').onclick = () => void window.friend.action('force-quit');
 byId('quit').onclick = () => void window.friend.action('quit');
 byId('tavern').onclick = () => void window.friend.action('tavern');
 byId('close-settings').onclick = () => void run(() => openWorkspace('history'));
-byId('settings-button').onclick = () => void run(() => openWorkspace('settings'));
+async function toggleSettings() {
+  if (current.view === 'dashboard') await window.friend.action('compact');
+  else await openWorkspace('settings');
+}
+byId('settings-button').onclick = () => void run(toggleSettings);
+window.friend.onOpenSettings(toggle => void run(() => toggle ? toggleSettings() : openWorkspace('settings')));
 document.addEventListener('friend:open-settings', () => {
   clearDeepseek = clearMimo = false;
   for (const [name, value] of Object.entries(current.settings)) {
@@ -168,18 +182,59 @@ document.addEventListener('friend:open-settings', () => {
   }
   (settingsForm.elements.namedItem('deepseekKey') as HTMLInputElement).placeholder = current.settings.hasDeepseekKey ? '已保存 · 留空保留原密钥' : '填写 DeepSeek 密钥';
   (settingsForm.elements.namedItem('mimoKey') as HTMLInputElement).placeholder = current.settings.hasMimoKey ? '已保存 · 留空保留原密钥' : '填写 MiMo 密钥';
+  resetApiSettings(current.settings);
   byId('book-info').textContent = `当前角色：${current.character} · 已导入 ${current.bookEntries} 条世界书`;
   byId('settings-error').hidden = true;
   byId('settings-saved').hidden = true;
   byId('settings-host').append(settingsDialog);
   if (!settingsDialog.open) settingsDialog.show();
+  void characterOperation(() => refreshCharacters());
+});
+async function refreshCharacters(preferred?: string) {
+  const request = ++characterRequest;
+  const characters = await window.friend.listCharacters();
+  if (request !== characterRequest) return;
+  const select = byId<HTMLSelectElement>('character-select');
+  select.replaceChildren(...characters.map(character => {
+    const option = document.createElement('option'); option.value = character.avatar;
+    option.textContent = `${character.name} · ${character.avatar}${character.avatar === current.characterAvatar ? '（当前）' : ''}`;
+    return option;
+  }));
+  if (!characters.length) { const option = document.createElement('option'); option.value = ''; option.textContent = '还没有角色，请先导入角色卡'; select.append(option); }
+  const selected = preferred || current.characterAvatar;
+  if (characters.some(character => character.avatar === selected)) select.value = selected;
+}
+async function characterOperation(action: () => Promise<void>) {
+  if (characterWorking) return;
+  const result = byId('character-result'); result.hidden = true; result.classList.remove('error');
+  characterWorking = true; render(current);
+  try { await action(); }
+  catch (cause) { result.textContent = String(cause).replace(/^Error: Error invoking remote method '[^']+': Error: /, ''); result.classList.add('error'); result.hidden = false; }
+  finally { characterWorking = false; render(current); }
+}
+byId('refresh-characters').onclick = () => void characterOperation(() => refreshCharacters());
+byId('character-select').onchange = () => render(current);
+byId('import-character').onclick = () => void characterOperation(async () => {
+  const imported = await window.friend.importCharacter();
+  if (!imported) return;
+  await refreshCharacters(imported.avatar);
+  byId('character-result').textContent = `已导入「${imported.name}」，选择“使用此角色”即可切换。`; byId('character-result').hidden = false;
+});
+byId('use-character').onclick = () => void characterOperation(async () => {
+  const avatar = byId<HTMLSelectElement>('character-select').value;
+  if (!avatar) return;
+  await window.friend.selectCharacter(avatar);
+  current = await window.friend.getState();
+  await refreshCharacters();
+  byId('character-result').textContent = `已切换到「${current.character}」，重启后仍会使用此角色。`; byId('character-result').hidden = false;
 });
 byId('clear-deepseek').onclick = () => { clearDeepseek = true; const input = settingsForm.elements.namedItem('deepseekKey') as HTMLInputElement; input.value = ''; input.placeholder = '保存后清除密钥'; };
 byId('clear-mimo').onclick = () => { clearMimo = true; const input = settingsForm.elements.namedItem('mimoKey') as HTMLInputElement; input.value = ''; input.placeholder = '保存后清除密钥'; };
 settingsForm.addEventListener('submit', async event => {
   event.preventDefault(); const data = new FormData(settingsForm);
   const patch: Partial<Settings> = {};
-  for (const name of ['userName', 'deepseekUrl', 'deepseekModel', 'mimoUrl', 'voice', 'voiceStyle'] as const) patch[name] = String(data.get(name) ?? '');
+  for (const name of ['userName', 'apiProvider', 'deepseekUrl', 'deepseekModel', 'mimoUrl', 'voice', 'voiceStyle'] as const) patch[name] = String(data.get(name) ?? '');
+  patch.petScale = Number(data.get('petScale'));
   patch.ttsEnabled = data.has('ttsEnabled'); patch.keepAwake = data.has('keepAwake');
   patch.windowObservationEnabled = data.has('windowObservationEnabled');
   const key = String(data.get('deepseekKey') ?? '').trim(); const ttsKey = String(data.get('mimoKey') ?? '').trim();
@@ -187,7 +242,9 @@ settingsForm.addEventListener('submit', async event => {
   byId<HTMLButtonElement>('save-settings').disabled = true;
   try {
     await window.friend.saveSettings(patch); clearDeepseek = clearMimo = false;
+    current = await window.friend.getState();
     for (const name of ['deepseekKey', 'mimoKey']) (settingsForm.elements.namedItem(name) as HTMLInputElement).value = '';
+    resetApiSettings(current.settings);
     byId('settings-saved').hidden = false;
   }
   catch (e) { byId('settings-error').textContent = String(e); byId('settings-error').hidden = false; }

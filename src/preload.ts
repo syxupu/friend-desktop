@@ -4,6 +4,19 @@ const listener = (channel: string, callback: (...args: any[]) => void) => {
   ipcRenderer.on(channel, handler); return () => ipcRenderer.removeListener(channel, handler);
 };
 contextBridge.exposeInMainWorld('friend', {
+  deleteRecord: (taskId: string, segmentId?: string) => ipcRenderer.invoke('friend:archive-delete', taskId, segmentId),
+  deleteLore: (avatar: string, revision: string, key: string) => ipcRenderer.invoke('friend:lore-delete', avatar, revision, key),
+  listModels: (query: unknown) => ipcRenderer.invoke('friend:models', query),
+  layoutPet: (height: number) => ipcRenderer.send('friend:pet-layout', height),
+  onOpenSettings: (callback: (toggle: boolean) => void) => listener('friend:open-settings', callback),
+  getCharacter: (avatar: string) => ipcRenderer.invoke('friend:character-get', avatar),
+  saveCharacter: (input: unknown) => ipcRenderer.invoke('friend:character-save', input),
+  copyCharacter: (avatar: string, revision: string) => ipcRenderer.invoke('friend:character-copy', avatar, revision),
+  saveCompanionPreferences: (avatar: string, revision: string, preferences: unknown) => ipcRenderer.invoke('friend:companion-save', avatar, revision, preferences),
+  newCharacterChat: () => ipcRenderer.invoke('friend:character-chat'),
+  listCharacters: () => ipcRenderer.invoke('friend:characters'),
+  importCharacter: () => ipcRenderer.invoke('friend:character-import'),
+  selectCharacter: (avatar: string) => ipcRenderer.invoke('friend:character-select', avatar),
   getState: () => ipcRenderer.invoke('friend:get'),
   send: (text: string) => ipcRenderer.invoke('friend:send', text),
   pinChat: (pinned: boolean) => ipcRenderer.invoke('friend:pin', pinned),

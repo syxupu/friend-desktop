@@ -4,6 +4,8 @@ import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import path from 'node:path';
 import net from 'node:net';
 import { withDeadline } from './deadline';
+import { validAvatar } from './character-card';
+import type { TavernCharacter } from './types';
 
 async function freePort(): Promise<number> {
   const server = net.createServer();
@@ -78,13 +80,28 @@ export class TavernRuntime {
     await this.window.loadURL(this.url);
     await this.window.webContents.executeJavaScript(await readFile(path.join(this.root, 'dist/tavern-bridge.js'), 'utf8'));
   }
-  async importCharacter(card: string) {
-    // Use the reviewed V3 JSON, never the PNG's conflicting older metadata.
+  async listCharacters(): Promise<TavernCharacter[]> {
+    this.lifetime.signal.throwIfAborted();
+    if (!this.window || this.window.isDestroyed()) throw new Error('酒馆仍在启动，请稍候');
+    const result = await this.bounded(this.window.webContents.executeJavaScript(`(async()=>{
+      const ctx=SillyTavern.getContext();const r=await fetch('/api/characters/all',{method:'POST',headers:ctx.getRequestHeaders(),body:'{}'});
+      if(!r.ok)throw new Error('角色列表读取失败');const all=await r.json();return all.map(c=>({avatar:c.avatar,name:c.name}));})()`), this.timeouts.bridge, '角色列表读取超时');
+    if (!Array.isArray(result)) throw new Error('角色列表格式不正确');
+    return result.filter(c => validAvatar(c.avatar) && typeof c.name === 'string').map(c => ({ avatar: c.avatar, name: c.name }));
+  }
+  async importCharacter(card: string, png?: Buffer, reuseExisting = true): Promise<string> {
+    this.lifetime.signal.throwIfAborted();
+    const payload = png ? png.toString('base64') : Buffer.from(card).toString('base64');
+    // Bootstrap may reuse an existing card. Explicit imports always create a new
+    // entry, so equal names cannot silently discard a user's different card.
     const code = `(async()=>{ const ctx=SillyTavern.getContext(); const all=await fetch('/api/characters/all',{method:'POST',headers:ctx.getRequestHeaders(),body:'{}'}).then(r=>r.json());
-      const existing=all.find(c=>c.name===${JSON.stringify(JSON.parse(card).data.name)}); if(existing)return existing.avatar;
-      const body=new FormData();body.append('avatar',new Blob([${JSON.stringify(card)}],{type:'application/json'}),'card.json');body.append('file_type','json');
+      const existing=all.find(c=>c.name===${JSON.stringify(JSON.parse(card).data.name)}); if(${reuseExisting}&&existing)return existing.avatar;
+      const bytes=Uint8Array.from(atob(${JSON.stringify(payload)}),c=>c.charCodeAt(0));
+      const body=new FormData();body.append('avatar',new Blob([bytes],{type:${JSON.stringify(png ? 'image/png' : 'application/json')}}),${JSON.stringify(png ? 'card.png' : 'card.json')});body.append('file_type',${JSON.stringify(png ? 'png' : 'json')});
       const response=await fetch('/api/characters/import',{method:'POST',headers:ctx.getRequestHeaders({omitContentType:true}),body});const result=await response.json();if(!response.ok||!result.file_name)throw new Error('角色卡导入失败');return result.file_name+'.png';})()`;
-    this.avatar = await this.bounded(this.window.webContents.executeJavaScript(code), this.timeouts.bridge, '角色导入超时'); return this.avatar;
+    const avatar = await this.bounded(this.window.webContents.executeJavaScript(code), this.timeouts.bridge, '角色导入超时');
+    if (!validAvatar(avatar)) throw new Error('酒馆返回的角色标识不正确');
+    return avatar;
   }
   async call(method: string, data?: unknown): Promise<any> {
     this.lifetime.signal.throwIfAborted();

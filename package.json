@@ -1,6 +1,6 @@
 {
   "name": "friend-desktop",
-  "version": "0.2.0",
+  "version": "0.5.2",
   "description": "Windows 学习陪伴桌宠原型，内置 SillyTavern 对话核心",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -28,7 +28,7 @@
     "appId": "io.friend.desktop",
     "productName": "Friend 桌宠",
     "directories": {
-      "output": "release/0.2.0"
+      "output": "release/0.5.2"
     },
     "files": [
       "dist/**",
@@ -39,7 +39,13 @@
       "THIRD_PARTY_NOTICES.md"
     ],
     "extraResources": [
-      { "from": "dist/native", "to": "native", "filter": ["foreground-reader.exe"] },
+      {
+        "from": "dist/native",
+        "to": "native",
+        "filter": [
+          "foreground-reader.exe"
+        ]
+      },
       {
         "from": "vendor/SillyTavern",
         "to": "SillyTavern",
@@ -55,7 +61,10 @@
       {
         "from": "vendor/SillyTavern/node_modules",
         "to": "SillyTavern/node_modules",
-        "filter": ["**/*", "!.cache/**"]
+        "filter": [
+          "**/*",
+          "!.cache/**"
+        ]
       },
       {
         "from": "vendor/node",
